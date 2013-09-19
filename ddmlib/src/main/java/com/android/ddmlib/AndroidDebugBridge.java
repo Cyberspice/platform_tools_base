@@ -68,6 +68,9 @@ public final class AndroidDebugBridge {
 
     /** Full path to adb. */
     private String mAdbOsLocation = null;
+    
+    /** Full path to adb's home directory. (Overrides the HOME environment variable) */
+    private String mAdbHomeDirectory = null;
 
     private boolean mVersionCheck;
 
@@ -303,7 +306,22 @@ public final class AndroidDebugBridge {
      * already exists.
      * @return a connected bridge.
      */
-    public static AndroidDebugBridge createBridge(String osLocation, boolean forceNewBridge) {
+     public static AndroidDebugBridge createBridge(String osLocation, boolean forceNewBridge) {
+    	return createBridge(osLocation, null, forceNewBridge);
+    }
+    
+     /**
+      * Creates a new debug bridge from the location of the command line tool.
+      * <p/>
+      * Any existing server will be disconnected, unless the location is the same and
+      * <code>forceNewBridge</code> is set to false.
+      * @param osLocation the location of the command line tool 'adb'
+      * @param homeDirectory the path to the home directory for 'adb' (overrides HOME environment variable)
+      * @param forceNewBridge force creation of a new bridge even if one with the same location
+      * already exists.
+      * @return a connected bridge.
+      */
+    public static AndroidDebugBridge createBridge(String osLocation, String homeDirectory, boolean forceNewBridge) {
         synchronized (sLock) {
             if (sThis != null) {
                 if (sThis.mAdbOsLocation != null && sThis.mAdbOsLocation.equals(osLocation) &&
@@ -316,7 +334,7 @@ public final class AndroidDebugBridge {
             }
 
             try {
-                sThis = new AndroidDebugBridge(osLocation);
+                sThis = new AndroidDebugBridge(osLocation, homeDirectory);
                 sThis.start();
             } catch (InvalidParameterException e) {
                 sThis = null;
@@ -548,13 +566,15 @@ public final class AndroidDebugBridge {
     /**
      * Creates a new bridge.
      * @param osLocation the location of the command line tool
+      * @param homeDirectory the path to the home directory for 'adb' (overrides HOME environment variable)
      * @throws InvalidParameterException
      */
-    private AndroidDebugBridge(String osLocation) throws InvalidParameterException {
+    private AndroidDebugBridge(String osLocation, String homeDirectory) throws InvalidParameterException {
         if (osLocation == null || osLocation.isEmpty()) {
             throw new InvalidParameterException();
         }
-        mAdbOsLocation = osLocation;
+        mAdbOsLocation    = osLocation;
+        mAdbHomeDirectory = homeDirectory;
 
         checkAdbVersion();
     }
@@ -938,12 +958,23 @@ public final class AndroidDebugBridge {
         int status = -1;
 
         try {
-            String[] command = new String[2];
-            command[0] = mAdbOsLocation;
-            command[1] = "start-server"; //$NON-NLS-1$
-            Log.d(DDMS,
-                    String.format("Launching '%1$s %2$s' to ensure ADB is running.", //$NON-NLS-1$
-                    mAdbOsLocation, command[1]));
+            ArrayList<String> commandList = new ArrayList<String>();
+            commandList.add(mAdbOsLocation);
+            if (mAdbHomeDirectory != null) {
+            	commandList.add("-D" + mAdbHomeDirectory); //$NON-NLS-1$
+            }
+            commandList.add("start-server"); //$NON-NLS-1$
+            
+            String[] command = commandList.toArray(new String[commandList.size()]);
+            
+            // TODO: Not scalable
+            String formatStr;
+            if (command.length > 2) {
+	            formatStr = "Launching '%1$s %2$s %3$s' to ensure ADB is running."; //$NON-NLS-1$
+            } else {
+            	formatStr = "Launching '%1$s %2$s' to ensure ADB is running."; //$NON-NLS-1$
+            }
+            Log.d(DDMS, String.format(formatStr, (Object[])command));
             ProcessBuilder processBuilder = new ProcessBuilder(command);
             if (DdmPreferences.getUseAdbHost()) {
                 String adbHostValue = DdmPreferences.getAdbHostValue();
